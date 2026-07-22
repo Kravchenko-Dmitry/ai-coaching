@@ -1,0 +1,1 @@
+Console.WriteLine("AkAgent.Mcp");
