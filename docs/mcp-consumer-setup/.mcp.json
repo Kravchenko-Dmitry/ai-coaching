@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "ak-agent": {
+      "command": "dotnet",
+      "args": ["run", "--project", "/absolute/path/to/archagent/src/AkAgent.Mcp"],
+      "env": {
+        "Api__BaseUrl": "http://localhost:5024"
+      }
+    }
+  }
+}

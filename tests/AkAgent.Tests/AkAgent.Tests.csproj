@@ -21,6 +21,7 @@
     <ProjectReference Include="..\..\src\AkAgent.Domain\AkAgent.Domain.csproj" />
     <ProjectReference Include="..\..\src\AkAgent.Infrastructure\AkAgent.Infrastructure.csproj" />
     <ProjectReference Include="..\..\src\AkAgent.Api\AkAgent.Api.csproj" />
+    <ProjectReference Include="..\..\src\AkAgent.Mcp\AkAgent.Mcp.csproj" />
   </ItemGroup>
 
 </Project>
