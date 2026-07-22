@@ -71,8 +71,8 @@ public sealed class AnswerService : IAnswerService
         var lastSyncAt = await GetLastSyncAtAsync(ct);
 
         _logger.LogInformation(
-            "Ask: hitCount={HitCount}, topScore={TopScore}, documented={Documented}",
-            hits.Count, hits.Count > 0 ? hits[0].Score : 0, hits.Count > 0);
+            "Ask: questionHash={QuestionHash}, hitCount={HitCount}, topScore={TopScore}, documented={Documented}",
+            Hash(question), hits.Count, hits.Count > 0 ? hits[0].Score : 0, hits.Count > 0);
 
         if (hits.Count == 0)
             return new AgentAnswer(NotDocumentedAnswer, [], OldestSourceModified: null, lastSyncAt, IsDocumented: false);
@@ -92,7 +92,12 @@ public sealed class AnswerService : IAnswerService
         var lastSyncAt = await GetLastSyncAtAsync(ct);
 
         if (hits.Count == 0)
+        {
+            _logger.LogInformation(
+                "Validate: proposalHash={ProposalHash}, hitCount=0, decision={Decision}",
+                Hash(proposal), ValidationDecision.NotCovered);
             return new ValidationResult(ValidationDecision.NotCovered, NotCoveredExplanation, [], lastSyncAt);
+        }
 
         var userMessage = BuildValidationUserMessage(proposal, hits);
         var responseJson = await _llmClient.CreateMessageAsync(
@@ -105,6 +110,10 @@ public sealed class AnswerService : IAnswerService
             ? ValidationDecision.Warning
             : ValidationDecision.Aligned;
 
+        _logger.LogInformation(
+            "Validate: proposalHash={ProposalHash}, hitCount={HitCount}, topScore={TopScore}, decision={Decision}",
+            Hash(proposal), hits.Count, hits[0].Score, decision);
+
         var citations = hits
             .Where(h => parsed.ReferencedDocuments.Contains(h.Document.Id))
             .Select(ToCitation)
@@ -112,6 +121,9 @@ public sealed class AnswerService : IAnswerService
 
         return new ValidationResult(decision, parsed.Explanation, citations, lastSyncAt);
     }
+
+    private static string Hash(string value)
+        => Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(Encoding.UTF8.GetBytes(value)));
 
     private async Task<DateTimeOffset> GetLastSyncAtAsync(CancellationToken ct)
     {
