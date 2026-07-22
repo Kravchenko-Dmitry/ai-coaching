@@ -1,5 +1,6 @@
 using AkAgent.Api.Sync;
 using AkAgent.Domain.Enums;
+using AkAgent.Domain.Exceptions;
 using AkAgent.Domain.Interfaces;
 using AkAgent.Domain.Models;
 using Anthropic.Exceptions;
@@ -34,7 +35,7 @@ public static class ApiEndpoints
             var answer = await answerService.AskAsync(request.Question, ct);
             return Results.Ok(answer);
         }
-        catch (AnthropicApiException)
+        catch (Exception ex) when (ex is AnthropicException or AnswerServiceUnavailableException)
         {
             return Results.Problem(statusCode: StatusCodes.Status503ServiceUnavailable, title: "LLM unavailable");
         }
@@ -54,18 +55,24 @@ public static class ApiEndpoints
             var result = await answerService.ValidateAsync(request.Proposal, ct);
             return Results.Ok(result);
         }
-        catch (AnthropicApiException)
+        catch (Exception ex) when (ex is AnthropicException or AnswerServiceUnavailableException)
         {
             return Results.Problem(statusCode: StatusCodes.Status503ServiceUnavailable, title: "LLM unavailable");
         }
     }
 
-    private static async Task<IResult> SyncAsync(ISyncEngine syncEngine, CancellationToken ct)
+    private static async Task<IResult> SyncAsync(
+        ISyncEngine syncEngine, IKnowledgeStore store, IEnumerable<IKnowledgeSource> sources, CancellationToken ct)
     {
         var result = await syncEngine.RunSyncAsync(ct);
-        return result.Started
-            ? Results.Ok(result.Report)
-            : Results.Problem(statusCode: StatusCodes.Status409Conflict, title: "sync already running");
+        if (result.Started)
+            return Results.Ok(result.Report);
+
+        var runningState = await BuildSourceStatusesAsync(store, sources, ct);
+        return Results.Problem(
+            statusCode: StatusCodes.Status409Conflict,
+            title: "sync already running",
+            extensions: new Dictionary<string, object?> { ["runningState"] = runningState });
     }
 
     private static async Task<IResult> StatusAsync(
@@ -74,16 +81,7 @@ public static class ApiEndpoints
         if (!readiness.IsReady)
             return Results.Problem(statusCode: StatusCodes.Status503ServiceUnavailable, title: "knowledge base warming up");
 
-        var statuses = new List<SourceStatus>();
-        foreach (var source in sources)
-        {
-            var state = await store.GetSyncStateAsync(source.Name, ct)
-                        ?? new SyncState { SourceName = source.Name, Status = SyncStatus.Never };
-            var health = await source.HealthCheckAsync(ct);
-            statuses.Add(new SourceStatus(source.Name, state, state.DocumentHashes.Count, health));
-        }
-
-        return Results.Ok(statuses);
+        return Results.Ok(await BuildSourceStatusesAsync(store, sources, ct));
     }
 
     private static async Task<IResult> DocumentsAsync(IKnowledgeStore store, CancellationToken ct)
@@ -95,6 +93,21 @@ public static class ApiEndpoints
         return document is not null
             ? Results.Ok(document)
             : Results.Problem(statusCode: StatusCodes.Status404NotFound, title: "document not found");
+    }
+
+    private static async Task<List<SourceStatus>> BuildSourceStatusesAsync(
+        IKnowledgeStore store, IEnumerable<IKnowledgeSource> sources, CancellationToken ct)
+    {
+        var statuses = new List<SourceStatus>();
+        foreach (var source in sources)
+        {
+            var state = await store.GetSyncStateAsync(source.Name, ct);
+            var summary = new SyncStateSummary(state?.LastSyncAt, state?.Status ?? SyncStatus.Never, state?.LastError);
+            var health = await source.HealthCheckAsync(ct);
+            statuses.Add(new SourceStatus(source.Name, summary, state?.DocumentHashes.Count ?? 0, health));
+        }
+
+        return statuses;
     }
 }
 

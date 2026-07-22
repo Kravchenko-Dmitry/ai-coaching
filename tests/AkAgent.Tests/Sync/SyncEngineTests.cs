@@ -4,6 +4,7 @@ using AkAgent.Domain.Enums;
 using AkAgent.Domain.Interfaces;
 using AkAgent.Domain.Models;
 using AkAgent.Infrastructure.Sync;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using NSubstitute;
 
@@ -56,6 +57,30 @@ public class SyncEngineTests
         await store.Received(1).SaveSyncStateAsync(
             Arg.Is<SyncState>(s => s != null && s.SourceName == "FileDrop" && s.Status == SyncStatus.Ok && s.DocumentHashes.ContainsKey(sourceDoc.Id)),
             Arg.Any<CancellationToken>());
+    }
+
+    [Test]
+    public async Task RunSyncAsync_computes_ContentHash_from_normalized_content_not_raw_content()
+    {
+        var store = Substitute.For<IKnowledgeStore>();
+        store.GetSyncStateAsync("FileDrop", Arg.Any<CancellationToken>()).Returns((SyncState?)null);
+
+        var source = MakeSource("FileDrop");
+        const string rawContent = "# Title\r\nBody with trailing whitespace.   \r\n\r\n";
+        var sourceDoc = new SourceDocument("FileDrop:doc.md", "Title", rawContent, DateTimeOffset.UtcNow, "text/markdown");
+        source.GetChangesAsync(null, Arg.Any<CancellationToken>()).Returns([sourceDoc]);
+        source.GetAllIdsAsync(Arg.Any<CancellationToken>()).Returns([sourceDoc.Id]);
+
+        KnowledgeDocument? captured = null;
+        store.When(s => s.UpsertAsync(Arg.Any<KnowledgeDocument>(), Arg.Any<CancellationToken>()))
+            .Do(ci => captured = ci.Arg<KnowledgeDocument>());
+
+        var engine = new SyncEngine([source], store, NullLogger<SyncEngine>.Instance);
+        await engine.RunSyncAsync(CancellationToken.None);
+
+        Assert.That(captured, Is.Not.Null);
+        Assert.That(captured!.ContentHash, Is.EqualTo(Hash(captured.Content)));
+        Assert.That(captured.ContentHash, Is.Not.EqualTo(Hash(rawContent)));
     }
 
     [Test]
@@ -256,5 +281,37 @@ public class SyncEngineTests
         releaseGetChanges.TrySetResult();
         var firstResult = await firstRun;
         Assert.That(firstResult.Started, Is.True);
+    }
+
+    [Test]
+    public async Task RunSyncAsync_logs_an_information_message_on_a_successful_sync()
+    {
+        var store = Substitute.For<IKnowledgeStore>();
+        store.GetSyncStateAsync("FileDrop", Arg.Any<CancellationToken>()).Returns((SyncState?)null);
+
+        var source = MakeSource("FileDrop");
+        source.GetChangesAsync(null, Arg.Any<CancellationToken>()).Returns((IReadOnlyList<SourceDocument>)[]);
+        source.GetAllIdsAsync(Arg.Any<CancellationToken>()).Returns((IReadOnlyList<string>)[]);
+
+        var logger = new RecordingLogger<SyncEngine>();
+        var engine = new SyncEngine([source], store, logger);
+
+        await engine.RunSyncAsync(CancellationToken.None);
+
+        Assert.That(logger.Entries, Has.Some.Matches<(LogLevel Level, string Message)>(
+            e => e.Level == LogLevel.Information && e.Message.Contains("Sync completed") && e.Message.Contains("FileDrop")));
+    }
+
+    private sealed class RecordingLogger<T> : ILogger<T>
+    {
+        public List<(LogLevel Level, string Message)> Entries { get; } = [];
+
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+
+        public bool IsEnabled(LogLevel logLevel) => true;
+
+        public void Log<TState>(
+            LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter)
+            => Entries.Add((logLevel, formatter(state, exception)));
     }
 }

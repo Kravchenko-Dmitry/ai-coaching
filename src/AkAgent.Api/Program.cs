@@ -33,6 +33,7 @@ builder.Services.AddHostedService<SyncBackgroundService>();
 var app = builder.Build();
 
 app.UseExceptionHandler();
+app.UseStatusCodePages();
 app.UseMiddleware<ApiKeyMiddleware>();
 
 app.MapApiEndpoints();

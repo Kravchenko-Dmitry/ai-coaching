@@ -1,9 +1,12 @@
 using System.Text;
 using System.Text.Json;
 using AkAgent.Domain.Enums;
+using AkAgent.Domain.Exceptions;
 using AkAgent.Domain.Interfaces;
 using AkAgent.Domain.Models;
+using AkAgent.Infrastructure.Configuration;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 
 namespace AkAgent.Infrastructure.Llm;
 
@@ -51,23 +54,26 @@ public sealed class AnswerService : IAnswerService
     private readonly IKnowledgeStore _store;
     private readonly IEnumerable<IKnowledgeSource> _sources;
     private readonly IAnthropicMessageClient _llmClient;
+    private readonly StoreOptions _storeOptions;
     private readonly ILogger<AnswerService> _logger;
 
     public AnswerService(
         IKnowledgeStore store,
         IEnumerable<IKnowledgeSource> sources,
         IAnthropicMessageClient llmClient,
+        IOptions<StoreOptions> storeOptions,
         ILogger<AnswerService> logger)
     {
         _store = store;
         _sources = sources;
         _llmClient = llmClient;
+        _storeOptions = storeOptions.Value;
         _logger = logger;
     }
 
     public async Task<AgentAnswer> AskAsync(string question, CancellationToken ct)
     {
-        var hits = await _store.SearchAsync(question, 5, ct);
+        var hits = await _store.SearchAsync(question, _storeOptions.MaxResults, ct);
         var lastSyncAt = await GetLastSyncAtAsync(ct);
 
         _logger.LogInformation(
@@ -88,7 +94,7 @@ public sealed class AnswerService : IAnswerService
 
     public async Task<ValidationResult> ValidateAsync(string proposal, CancellationToken ct)
     {
-        var hits = await _store.SearchAsync(proposal, 5, ct);
+        var hits = await _store.SearchAsync(proposal, _storeOptions.MaxResults, ct);
         var lastSyncAt = await GetLastSyncAtAsync(ct);
 
         if (hits.Count == 0)
@@ -103,8 +109,18 @@ public sealed class AnswerService : IAnswerService
         var responseJson = await _llmClient.CreateMessageAsync(
             new AnthropicMessageRequest(ValidationSystemPrompt, userMessage, ValidationJsonSchema), ct);
 
-        var parsed = JsonSerializer.Deserialize<ValidationLlmResponse>(responseJson, ValidationResponseJsonOptions)
-                     ?? throw new InvalidOperationException("LLM validation response could not be parsed.");
+        ValidationLlmResponse? parsed;
+        try
+        {
+            parsed = JsonSerializer.Deserialize<ValidationLlmResponse>(responseJson, ValidationResponseJsonOptions);
+        }
+        catch (JsonException ex)
+        {
+            throw new AnswerServiceUnavailableException("LLM validation response could not be parsed.", ex);
+        }
+
+        if (parsed is null)
+            throw new AnswerServiceUnavailableException("LLM validation response could not be parsed.");
 
         var decision = parsed.Decision.Equals("warning", StringComparison.OrdinalIgnoreCase)
             ? ValidationDecision.Warning

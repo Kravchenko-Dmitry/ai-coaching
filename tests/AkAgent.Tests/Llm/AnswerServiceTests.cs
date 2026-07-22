@@ -1,14 +1,20 @@
 using AkAgent.Domain.Enums;
 using AkAgent.Domain.Interfaces;
 using AkAgent.Domain.Models;
+using AkAgent.Infrastructure.Configuration;
 using AkAgent.Infrastructure.Llm;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
 using NSubstitute;
 
 namespace AkAgent.Tests.Llm;
 
 public class AnswerServiceTests
 {
+    private static AnswerService CreateService(
+        IKnowledgeStore store, IEnumerable<IKnowledgeSource> sources, IAnthropicMessageClient llmClient, int maxResults = 5)
+        => new(store, sources, llmClient, Options.Create(new StoreOptions { MaxResults = maxResults }), NullLogger<AnswerService>.Instance);
+
     private static KnowledgeDocument MakeDoc(
         string id,
         string title,
@@ -42,7 +48,7 @@ public class AnswerServiceTests
         store.GetSyncStateAsync(Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns((SyncState?)null);
 
         var llmClient = Substitute.For<IAnthropicMessageClient>();
-        var service = new AnswerService(store, [], llmClient, NullLogger<AnswerService>.Instance);
+        var service = CreateService(store, [], llmClient);
 
         var result = await service.AskAsync("what is X", CancellationToken.None);
 
@@ -76,7 +82,7 @@ public class AnswerServiceTests
         llmClient.CreateMessageAsync(Arg.Any<AnthropicMessageRequest>(), Arg.Any<CancellationToken>())
             .Returns("We use REST for service-to-service communication.");
 
-        var service = new AnswerService(store, [source], llmClient, NullLogger<AnswerService>.Instance);
+        var service = CreateService(store, [source], llmClient);
 
         var result = await service.AskAsync("how do services talk", CancellationToken.None);
 
@@ -113,8 +119,7 @@ public class AnswerServiceTests
         var llmClient = Substitute.For<IAnthropicMessageClient>();
         llmClient.CreateMessageAsync(Arg.Any<AnthropicMessageRequest>(), Arg.Any<CancellationToken>()).Returns("answer");
 
-        var service = new AnswerService(
-            store, [MakeSource("SourceA"), MakeSource("SourceB")], llmClient, NullLogger<AnswerService>.Instance);
+        var service = CreateService(store, [MakeSource("SourceA"), MakeSource("SourceB")], llmClient);
 
         var result = await service.AskAsync("question", CancellationToken.None);
 
@@ -134,11 +139,41 @@ public class AnswerServiceTests
         var llmClient = Substitute.For<IAnthropicMessageClient>();
         llmClient.CreateMessageAsync(Arg.Any<AnthropicMessageRequest>(), Arg.Any<CancellationToken>()).Returns("answer");
 
-        var service = new AnswerService(store, [MakeSource("FileDrop")], llmClient, NullLogger<AnswerService>.Instance);
+        var service = CreateService(store, [MakeSource("FileDrop")], llmClient);
 
         var result = await service.AskAsync("question", CancellationToken.None);
 
         Assert.That(result.LastSyncAt, Is.EqualTo(DateTimeOffset.MinValue));
+    }
+
+    [Test]
+    public async Task AskAsync_passes_the_configured_MaxResults_to_SearchAsync()
+    {
+        var store = Substitute.For<IKnowledgeStore>();
+        store.SearchAsync(Arg.Any<string>(), 3, Arg.Any<CancellationToken>()).Returns((IReadOnlyList<SearchHit>)[]);
+        store.GetSyncStateAsync(Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns((SyncState?)null);
+
+        var llmClient = Substitute.For<IAnthropicMessageClient>();
+        var service = CreateService(store, [], llmClient, maxResults: 3);
+
+        await service.AskAsync("question", CancellationToken.None);
+
+        await store.Received(1).SearchAsync("question", 3, Arg.Any<CancellationToken>());
+    }
+
+    [Test]
+    public async Task ValidateAsync_passes_the_configured_MaxResults_to_SearchAsync()
+    {
+        var store = Substitute.For<IKnowledgeStore>();
+        store.SearchAsync(Arg.Any<string>(), 8, Arg.Any<CancellationToken>()).Returns((IReadOnlyList<SearchHit>)[]);
+        store.GetSyncStateAsync(Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns((SyncState?)null);
+
+        var llmClient = Substitute.For<IAnthropicMessageClient>();
+        var service = CreateService(store, [], llmClient, maxResults: 8);
+
+        await service.ValidateAsync("proposal", CancellationToken.None);
+
+        await store.Received(1).SearchAsync("proposal", 8, Arg.Any<CancellationToken>());
     }
 
     [Test]
@@ -149,7 +184,7 @@ public class AnswerServiceTests
         store.GetSyncStateAsync(Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns((SyncState?)null);
 
         var llmClient = Substitute.For<IAnthropicMessageClient>();
-        var service = new AnswerService(store, [], llmClient, NullLogger<AnswerService>.Instance);
+        var service = CreateService(store, [], llmClient);
 
         var result = await service.ValidateAsync("use a new queue", CancellationToken.None);
 
@@ -174,7 +209,7 @@ public class AnswerServiceTests
         llmClient.CreateMessageAsync(Arg.Any<AnthropicMessageRequest>(), Arg.Any<CancellationToken>())
             .Returns("""{"decision":"aligned","explanation":"Matches the messaging pattern.","referencedDocuments":["FileDrop:adr-001.md"]}""");
 
-        var service = new AnswerService(store, [], llmClient, NullLogger<AnswerService>.Instance);
+        var service = CreateService(store, [], llmClient);
 
         var result = await service.ValidateAsync("use async messaging for order events", CancellationToken.None);
 
@@ -202,7 +237,7 @@ public class AnswerServiceTests
         llmClient.CreateMessageAsync(Arg.Any<AnthropicMessageRequest>(), Arg.Any<CancellationToken>())
             .Returns("""{"decision":"warning","explanation":"Conflicts with the documented storage standard.","referencedDocuments":["FileDrop:adr-003.md"]}""");
 
-        var service = new AnswerService(store, [], llmClient, NullLogger<AnswerService>.Instance);
+        var service = CreateService(store, [], llmClient);
 
         var result = await service.ValidateAsync("store user data in a flat file", CancellationToken.None);
 

@@ -1,7 +1,10 @@
 using System.Net;
 using System.Net.Http.Json;
 using AkAgent.Domain.Enums;
+using AkAgent.Domain.Interfaces;
 using AkAgent.Domain.Models;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 
 namespace AkAgent.IntegrationTests;
 
@@ -134,6 +137,65 @@ public class ApiIntegrationTests
         var result = await response.Content.ReadFromJsonAsync<ValidationResult>();
         Assert.That(result, Is.Not.Null);
         Assert.That(result!.Decision, Is.EqualTo(ValidationDecision.NotCovered));
+    }
+
+    [Test]
+    public async Task Unmatched_route_returns_problem_details()
+    {
+        await WaitForReadyAsync();
+
+        var response = await _client.GetAsync("/this-route-does-not-exist");
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.NotFound));
+        Assert.That(response.Content.Headers.ContentType?.MediaType, Is.EqualTo("application/problem+json"));
+    }
+
+    [Test]
+    public async Task Ask_returns_503_when_the_answer_service_is_unavailable()
+    {
+        using var factory = new ApiWebApplicationFactory(services =>
+        {
+            services.RemoveAll<IAnswerService>();
+            services.AddSingleton<IAnswerService, ThrowingAnswerService>();
+        });
+        using var client = factory.CreateClient();
+
+        for (var i = 0; i < 100; i++)
+        {
+            var probe = await client.GetAsync("/status");
+            if (probe.StatusCode == HttpStatusCode.OK)
+                break;
+            await Task.Delay(100);
+        }
+
+        var response = await client.PostAsJsonAsync("/ask", new AskRequestBody("anything"));
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.ServiceUnavailable));
+        Assert.That(response.Content.Headers.ContentType?.MediaType, Is.EqualTo("application/problem+json"));
+    }
+
+    [Test]
+    public async Task Validate_returns_503_when_the_answer_service_is_unavailable()
+    {
+        using var factory = new ApiWebApplicationFactory(services =>
+        {
+            services.RemoveAll<IAnswerService>();
+            services.AddSingleton<IAnswerService, ThrowingAnswerService>();
+        });
+        using var client = factory.CreateClient();
+
+        for (var i = 0; i < 100; i++)
+        {
+            var probe = await client.GetAsync("/status");
+            if (probe.StatusCode == HttpStatusCode.OK)
+                break;
+            await Task.Delay(100);
+        }
+
+        var response = await client.PostAsJsonAsync("/validate", new ValidateRequestBody("anything"));
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.ServiceUnavailable));
+        Assert.That(response.Content.Headers.ContentType?.MediaType, Is.EqualTo("application/problem+json"));
     }
 
     private async Task<AgentAnswer> AskAsync(string question)

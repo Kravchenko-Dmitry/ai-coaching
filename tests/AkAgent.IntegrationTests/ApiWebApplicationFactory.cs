@@ -12,9 +12,11 @@ public sealed class ApiWebApplicationFactory : WebApplicationFactory<Program>
     public string DataPath { get; }
 
     private readonly string _root;
+    private readonly Action<IServiceCollection>? _configureServices;
 
-    public ApiWebApplicationFactory()
+    public ApiWebApplicationFactory(Action<IServiceCollection>? configureServices = null)
     {
+        _configureServices = configureServices;
         _root = Path.Combine(Path.GetTempPath(), "ak-agent-integration-tests", Guid.NewGuid().ToString());
         KnowledgeDocsPath = Path.Combine(_root, "knowledge-docs");
         DataPath = Path.Combine(_root, "data");
@@ -36,6 +38,7 @@ public sealed class ApiWebApplicationFactory : WebApplicationFactory<Program>
         {
             services.RemoveAll<IAnswerService>();
             services.AddSingleton<IAnswerService, FakeAnswerService>();
+            _configureServices?.Invoke(services);
         });
     }
 

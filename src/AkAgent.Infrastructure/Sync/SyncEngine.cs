@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Security.Cryptography;
 using System.Text;
 using AkAgent.Domain.Enums;
@@ -60,6 +61,7 @@ public sealed class SyncEngine : ISyncEngine
         var changed = 0;
         var removed = 0;
         var skipped = 0;
+        var stopwatch = Stopwatch.StartNew();
 
         try
         {
@@ -69,14 +71,14 @@ public sealed class SyncEngine : ISyncEngine
             {
                 ct.ThrowIfCancellationRequested();
 
-                var contentHash = ComputeHash(sourceDoc.RawContent);
+                var normalizedContent = MarkdownProcessor.Normalize(sourceDoc.RawContent);
+                var contentHash = ComputeHash(normalizedContent);
                 if (hashes.TryGetValue(sourceDoc.Id, out var existingHash) && existingHash == contentHash)
                 {
                     skipped++;
                     continue;
                 }
 
-                var normalizedContent = MarkdownProcessor.Normalize(sourceDoc.RawContent);
                 var sections = MarkdownProcessor.SplitIntoSections(normalizedContent);
                 var documentType = DocumentTypeClassifier.Infer(sourceDoc.Id, sourceDoc.Title);
 
@@ -115,11 +117,18 @@ public sealed class SyncEngine : ISyncEngine
                 DocumentHashes = hashes
             }, ct);
 
+            _logger.LogInformation(
+                "Sync completed for source {SourceName}: changed={Changed}, removed={Removed}, skipped={Skipped}, durationMs={DurationMs}",
+                source.Name, changed, removed, skipped, stopwatch.ElapsedMilliseconds);
+
             return new SourceSyncReport(source.Name, changed, removed, skipped, SyncStatus.Ok, null);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            _logger.LogError(ex, "Sync failed for source {SourceName}", source.Name);
+            _logger.LogError(
+                ex,
+                "Sync failed for source {SourceName} after {DurationMs}ms: changed={Changed}, removed={Removed}, skipped={Skipped}",
+                source.Name, stopwatch.ElapsedMilliseconds, changed, removed, skipped);
 
             await _store.SaveSyncStateAsync(new SyncState
             {

@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Anthropic;
 using Anthropic.Models.Messages;
+using AkAgent.Domain.Exceptions;
 using AkAgent.Infrastructure.Configuration;
 using Microsoft.Extensions.Options;
 
@@ -41,7 +42,7 @@ public sealed class AnthropicMessageClient : IAnthropicMessageClient
             .FirstOrDefault();
 
         if (string.IsNullOrEmpty(text))
-            throw new InvalidOperationException("Anthropic response contained no text content.");
+            throw new AnswerServiceUnavailableException("Anthropic response contained no text content.");
 
         return text;
     }
