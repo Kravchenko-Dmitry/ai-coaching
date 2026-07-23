@@ -251,3 +251,57 @@ Key architectural decisions and rationale (external source of truth, pluggable c
 vector DB in MVP, advisory-only guardrails, etc.) are documented in
 [`SPEC.md` §6](SPEC.MD#6-key-architecture-decisions-with-rationale). Anything listed under
 [§7 Out of Scope](SPEC.MD#7-out-of-scope-mvp) is intentionally not implemented in this MVP.
+
+## Honest assessment against the brief
+
+This prototype was built against four framing questions. Each is addressed below along with the
+simplifications made and the risk each one carries — this is a snapshot for reviewers, not a
+sales pitch.
+
+**1. How knowledge is collected and kept current, and how fresh it needs to be**
+`IKnowledgeSource` + `FileDropKnowledgeSource` (local markdown folder), with hourly polling, a
+manual `POST /sync`, and a startup sync, all driven by hash-based incremental diffing. The gap:
+the brief frames sources as Confluence/SharePoint-like systems, and FileDrop is a stand-in for
+that, not an instance of it — none of the hard parts of a real connector (OAuth, pagination,
+delta/webhook APIs, rate limits, mapping a wiki's rich content model down to markdown + headings)
+have actually been exercised. The interface is *designed* to make that swap non-invasive (see
+[Extensibility](#extensibility-adding-another-document-source) above), but that's a claim until a
+second connector actually gets built. On freshness: hourly is a bet that architecture docs change
+on a scale of days, not minutes — reasonable, but untested against real usage — and the bigger
+risk isn't the interval, it's that nothing tells an architect who just edited an ADR that the
+agent hasn't picked up the change yet; they have to know to call `/sync` or wait.
+
+**2. How it's packaged and distributed so teams actually use it**
+A self-hosted REST API (`dotnet run`) plus a stdio MCP server that a coding agent launches
+per-repo via `.mcp.json`. The gap: this is closer to "source code teams have to run" than
+"something teams adopt." Every developer's machine needs the .NET 8 SDK and a checked-out copy of
+this repo so `.mcp.json` can point `dotnet run --project` at an absolute local path — there's no
+packaged binary, container image, or one-line install. For a real team the REST API would need to
+run as a shared, always-on service with real auth turned on (`Security:ApiKey` exists but is
+disabled by default), and the MCP side would need to ship closer to `npx @org/ak-agent-mcp` than
+"clone this repo and point at it." The architect-facing Q&A channel is REST-only — no UI — so
+today that means curl/Postman/a script, not something an architect just opens and uses.
+
+**3. Handling stale, missing, or low-confidence knowledge**
+Every answer carries `LastSyncAt` plus per-citation `LastModified`; empty or sub-threshold search
+hits return an explicit "not documented" instead of an LLM guess; a source that fails to sync
+keeps serving the last-known-good data and surfaces `Failed` + the error on `/status` rather than
+going dark. The gap: "confidence" here is entirely a keyword term-frequency score against a fixed
+threshold (`Store:MinScore = 0.15`) — it has no semantic understanding, so a document can score
+above threshold purely on incidental keyword overlap with an unrelated topic, producing a
+false-positive "documented" answer the system currently has no way to distinguish from a true
+positive. Conflict-surfacing ("if documents conflict, present both positions") is a system-prompt
+instruction to the LLM, not a structural guarantee — nothing in code verifies the model actually
+did it. Both are reasonable MVP simplifications, but they're exactly where a production version
+would need semantic/embedding retrieval and a verification pass over the model's output.
+
+**4. Fitting real developer and architect workflows without friction**
+Guardrails are advisory-only — `aligned | warning | not-covered`, never blocking — with the
+intended workflow documented as a `CLAUDE.md` convention telling a coding agent to call
+`validate_against_architecture` before architecturally-relevant changes. The gap: that workflow is
+entirely convention-based. Nothing forces the coding agent to call the tool, and nothing catches
+it if it doesn't — the guardrail's value depends on the coding agent reliably following a
+meta-instruction in `CLAUDE.md`, which smaller/faster models (or a long, distracted context
+window) won't always do, and there's no CI check or audit log of "was validate called before this
+diff landed." For architects, Q&A is stateless (no conversation memory), so a follow-up question
+can't build on a prior exchange — every question needs its full context restated.
