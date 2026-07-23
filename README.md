@@ -202,7 +202,33 @@ dotnet test
 LLM calls are mocked at the `IAnswerService` boundary — no live Anthropic API calls happen in
 tests.
 
-## Extensibility: adding another document source
+## Design decisions
+
+Key architectural decisions and rationale (external source of truth, pluggable connectors, no
+vector DB in MVP, advisory-only guardrails, etc.) are documented in
+[`SPEC.md` §6](SPEC.MD#6-key-architecture-decisions-with-rationale). Anything listed under
+[§7 Out of Scope](SPEC.MD#7-out-of-scope-mvp) is intentionally not implemented in this MVP.
+
+## Solution assessment against the initial assignment
+
+This prototype was built against four framing questions from the exercise brief. Each is
+addressed below along with the simplifications made and the risk each one carries — this is a
+snapshot for reviewers, not a sales pitch.
+
+**1. How knowledge is collected and kept current, and how fresh it needs to be**
+`IKnowledgeSource` + `FileDropKnowledgeSource` (local markdown folder), with hourly polling, a
+manual `POST /sync`, and a startup sync, all driven by hash-based incremental diffing. The gap:
+the brief frames sources as Confluence/SharePoint-like systems, and FileDrop is a stand-in for
+that, not an instance of it — none of the hard parts of a real connector (OAuth, pagination,
+delta/webhook APIs, rate limits, mapping a wiki's rich content model down to markdown + headings)
+have actually been exercised. The interface is *designed* to make that swap non-invasive (see
+[Extensibility](#extensibility-adding-another-document-source) below), but that's a claim until a
+second connector actually gets built. On freshness: hourly is a bet that architecture docs change
+on a scale of days, not minutes — reasonable, but untested against real usage — and the bigger
+risk isn't the interval, it's that nothing tells an architect who just edited an ADR that the
+agent hasn't picked up the change yet; they have to know to call `/sync` or wait.
+
+### Extensibility: adding another document source
 
 Everything downstream of ingestion — `SyncEngine`, `IKnowledgeStore`, `AnswerService`, the REST
 API, the MCP tools — only ever talks to the `IKnowledgeSource` interface
@@ -253,32 +279,6 @@ configuration** (e.g. two separate FileDrop folders, or two Confluence spaces fr
 `appsettings.json` list) — that needs a config-driven registration loop instead of one hardcoded
 `AddSingleton` line per type. This is explicitly out of scope for the MVP (`SPEC.md` §7) and listed
 as future work in §8.2.
-
-## Design decisions
-
-Key architectural decisions and rationale (external source of truth, pluggable connectors, no
-vector DB in MVP, advisory-only guardrails, etc.) are documented in
-[`SPEC.md` §6](SPEC.MD#6-key-architecture-decisions-with-rationale). Anything listed under
-[§7 Out of Scope](SPEC.MD#7-out-of-scope-mvp) is intentionally not implemented in this MVP.
-
-## Honest assessment against the brief
-
-This prototype was built against four framing questions. Each is addressed below along with the
-simplifications made and the risk each one carries — this is a snapshot for reviewers, not a
-sales pitch.
-
-**1. How knowledge is collected and kept current, and how fresh it needs to be**
-`IKnowledgeSource` + `FileDropKnowledgeSource` (local markdown folder), with hourly polling, a
-manual `POST /sync`, and a startup sync, all driven by hash-based incremental diffing. The gap:
-the brief frames sources as Confluence/SharePoint-like systems, and FileDrop is a stand-in for
-that, not an instance of it — none of the hard parts of a real connector (OAuth, pagination,
-delta/webhook APIs, rate limits, mapping a wiki's rich content model down to markdown + headings)
-have actually been exercised. The interface is *designed* to make that swap non-invasive (see
-[Extensibility](#extensibility-adding-another-document-source) above), but that's a claim until a
-second connector actually gets built. On freshness: hourly is a bet that architecture docs change
-on a scale of days, not minutes — reasonable, but untested against real usage — and the bigger
-risk isn't the interval, it's that nothing tells an architect who just edited an ADR that the
-agent hasn't picked up the change yet; they have to know to call `/sync` or wait.
 
 **2. How it's packaged and distributed so teams actually use it**
 A self-hosted REST API (`dotnet run`) plus a stdio MCP server that a coding agent launches
