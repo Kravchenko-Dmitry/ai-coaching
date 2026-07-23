@@ -193,6 +193,58 @@ dotnet test
 LLM calls are mocked at the `IAnswerService` boundary — no live Anthropic API calls happen in
 tests.
 
+## Extensibility: adding another document source
+
+Everything downstream of ingestion — `SyncEngine`, `IKnowledgeStore`, `AnswerService`, the REST
+API, the MCP tools — only ever talks to the `IKnowledgeSource` interface
+([`src/AkAgent.Domain/Interfaces/IKnowledgeSource.cs`](src/AkAgent.Domain/Interfaces/IKnowledgeSource.cs)):
+
+```csharp
+public interface IKnowledgeSource
+{
+    string Name { get; }
+    Task<IReadOnlyList<SourceDocument>> GetChangesAsync(DateTimeOffset? since, CancellationToken ct);
+    Task<SourceDocument?> GetDocumentAsync(string id, CancellationToken ct);
+    Task<IReadOnlyList<string>> GetAllIdsAsync(CancellationToken ct);
+    Task<HealthStatus> HealthCheckAsync(CancellationToken ct);
+}
+```
+
+`FileDropKnowledgeSource` is simply the MVP's implementation of that contract, backed by the
+filesystem instead of a network API — it is not a mock or test double, it is a real, production-usable
+connector:
+
+| Interface method | `FileDropKnowledgeSource` (built) | A Confluence/SharePoint connector (future) |
+|---|---|---|
+| `GetChangesAsync(since)` | `Directory.EnumerateFiles(*.md)` filtered by `File.GetLastWriteTimeUtc > since` | Call the delta/changes API (e.g. Confluence CQL, Graph delta query), paginated |
+| `GetDocumentAsync(id)` | `File.ReadAllTextAsync` at a path derived from the id | Fetch by page/item ID via REST |
+| `GetAllIdsAsync()` | Enumerate all `*.md` filenames | List all page/item IDs in the space/site |
+| `HealthCheckAsync()` | `Directory.Exists` + can enumerate | Ping the API, check auth/space exists |
+| `Id` scheme | `"FileDrop:{relative/path.md}"` | e.g. `"Confluence:{pageId}"` |
+| Auth | None — local filesystem permissions | OAuth/API token against the external system |
+
+**Multiple source *types* at once already work today**, without touching `SyncEngine`,
+`AnswerService`, or the API/MCP layers. Every consumer already depends on `IEnumerable<IKnowledgeSource>`,
+not a single instance (`SyncEngine.cs`, `AnswerService.cs`, `SyncBackgroundService.cs`,
+`ApiEndpoints.cs` all loop `foreach (var source in sources)`). ASP.NET Core's DI container returns
+every registered implementation when you resolve `IEnumerable<T>`, so registering a second connector
+type in [`Program.cs`](src/AkAgent.Api/Program.cs) is enough:
+
+```csharp
+builder.Services.AddSingleton<IKnowledgeSource, FileDropKnowledgeSource>();
+builder.Services.AddSingleton<IKnowledgeSource, ConfluenceKnowledgeSource>(); // new
+```
+
+`SyncEngine` already processes sources sequentially in a loop, and doc IDs are namespaced per
+source (`FileDrop:adr-002.md` vs. `Confluence:12345`), so there's no collision — both would sync
+side by side with no other code changes.
+
+What's *not* supported yet is **multiple instances of the same connector type driven by
+configuration** (e.g. two separate FileDrop folders, or two Confluence spaces from an
+`appsettings.json` list) — that needs a config-driven registration loop instead of one hardcoded
+`AddSingleton` line per type. This is explicitly out of scope for the MVP (`SPEC.md` §7) and listed
+as future work in §8.2.
+
 ## Design decisions
 
 Key architectural decisions and rationale (external source of truth, pluggable connectors, no
