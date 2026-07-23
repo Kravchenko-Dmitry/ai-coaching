@@ -47,8 +47,9 @@ graph TB
     syncengine --> store
     bgservice --> syncengine
     endpoints -- "POST /sync" --> syncengine
-    endpoints -- "search" --> store
-    endpoints -- "Ask / Validate" --> answer
+    endpoints -- "GET /documents, /status" --> store
+    endpoints -- "POST /ask, /validate" --> answer
+    answer -- "search" --> store
     answer -- "prompt + retrieved docs" --> anthropic
 
     infra -.implements.-> domain
