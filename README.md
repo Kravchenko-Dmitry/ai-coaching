@@ -160,5 +160,5 @@ tests.
 
 Key architectural decisions and rationale (external source of truth, pluggable connectors, no
 vector DB in MVP, advisory-only guardrails, etc.) are documented in
-[`SPEC.md` §6](SPEC.md#6-key-architecture-decisions-with-rationale). Anything listed under
-[§7 Out of Scope](SPEC.md#7-out-of-scope-mvp) is intentionally not implemented in this MVP.
+[`SPEC.md` §6](SPEC.MD#6-key-architecture-decisions-with-rationale). Anything listed under
+[§7 Out of Scope](SPEC.MD#7-out-of-scope-mvp) is intentionally not implemented in this MVP.
