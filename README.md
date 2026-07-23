@@ -219,8 +219,9 @@ addressed below along with the simplifications made and the risk each one carrie
 manual `POST /sync`, and a startup sync, all driven by hash-based incremental diffing. The gap:
 the brief frames sources as Confluence/SharePoint-like systems, and FileDrop is a stand-in for
 that, not an instance of it. The interface is *designed* to make that swap non-invasive (see
-[Extensibility](#extensibility-adding-another-document-source) below). On freshness: hourly update 
-is a hardcoded value; to trigger manual update of knowledge base one should call `/sync` or wait.
+[Extensibility](#extensibility-adding-another-document-source) below). On freshness: hourly is the
+configurable default (`Sync:IntervalMinutes`); to trigger a manual update of the knowledge base
+one should call `/sync` or wait.
 
 **2. How it's packaged and distributed so teams actually use it**
 A self-hosted REST API (`dotnet run`) plus a stdio MCP server that a coding agent launches
@@ -250,6 +251,8 @@ intended workflow documented as a `CLAUDE.md` convention telling a coding agent 
 entirely convention-based. Nothing forces the coding agent to call the tool, and nothing catches
 it if it doesn't — the guardrail's value depends on the coding agent reliably following a
 meta-instruction in `CLAUDE.md`.
+
+<a id="extensibility-adding-another-document-source"></a>
 
 **5. Extensibility: adding another document source**
 
