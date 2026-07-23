@@ -103,6 +103,10 @@ Configure via `appsettings.json`, environment variables, or user-secrets (`AkAge
 }
 ```
 
+`Llm:Model` defaults to `claude-sonnet-4-6` if unset — this default is hardcoded in
+[`LlmOptions.cs`](src/AkAgent.Infrastructure/Configuration/LlmOptions.cs), not just in
+`appsettings.json`. Override it via config to use a different Claude model.
+
 **Before running anything**, set the Anthropic API key as an environment variable in your shell —
 the key must never be committed to source or `appsettings.json`:
 
