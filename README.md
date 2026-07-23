@@ -14,18 +14,50 @@ See [`SPEC.md`](SPEC.MD) for the full specification.
 
 ## How it works
 
-```
-External Sources ──> Connectors (IKnowledgeSource) ──> Sync Engine ──> Knowledge Store (IKnowledgeStore)
-                                                                             │
-                                              ┌──────────────────────────────┤
-                                              ▼                              ▼
-                                       Query Pipeline ◄──────────── Sync State
-                                              │
-                              ┌───────────────┴───────────────┐
-                              ▼                               ▼
-                       REST API (/ask, /sync)          MCP Server (2 tools)
-                              │                               │
-                         Architects                      Claude Code
+```mermaid
+graph TB
+    architect["Architect"]
+    coding_agent["Coding agent<br/>(e.g. Claude Code)"]
+    docs_folder[("knowledge-docs/<br/>markdown files")]
+    anthropic(["Anthropic API"])
+
+    subgraph domain["AkAgent.Domain"]
+        interfaces["IKnowledgeSource<br/>IKnowledgeStore<br/>IAnswerService"]
+    end
+
+    subgraph infra["AkAgent.Infrastructure"]
+        source["FileDropKnowledgeSource"]
+        syncengine["SyncEngine<br/>(hash diff, sections, delete detection)"]
+        store[("InMemoryKnowledgeStore<br/>+ JSON persistence")]
+        answer["AnswerService<br/>(AnthropicMessageClient)"]
+    end
+
+    subgraph api["AkAgent.Api"]
+        bgservice["SyncBackgroundService<br/>(timer + startup sync)"]
+        endpoints["ApiEndpoints<br/>/ask /validate /sync<br/>/status /documents"]
+    end
+
+    subgraph mcp["AkAgent.Mcp"]
+        tools["ArchitectureKnowledgeTools<br/>query_architecture_knowledge<br/>validate_against_architecture"]
+        apiclient["ArchitectureApiClient"]
+    end
+
+    docs_folder --> source
+    source --> syncengine
+    syncengine --> store
+    bgservice --> syncengine
+    endpoints -- "POST /sync" --> syncengine
+    endpoints -- "search" --> store
+    endpoints -- "Ask / Validate" --> answer
+    answer -- "prompt + retrieved docs" --> anthropic
+
+    infra -.implements.-> domain
+    api --> infra
+
+    architect -- "REST" --> endpoints
+    coding_agent -- "stdio MCP" --> tools
+    tools --> apiclient
+    apiclient -- "HTTP" --> endpoints
 ```
 
 - Documents are pulled from a **file-drop folder** (`src/AkAgent.Api/knowledge-docs`) of markdown
