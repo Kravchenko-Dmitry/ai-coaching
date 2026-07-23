@@ -251,7 +251,7 @@ entirely convention-based. Nothing forces the coding agent to call the tool, and
 it if it doesn't — the guardrail's value depends on the coding agent reliably following a
 meta-instruction in `CLAUDE.md`.
 
-### Extensibility: adding another document source
+**5. Extensibility: adding another document source**
 
 Everything downstream of ingestion — `SyncEngine`, `IKnowledgeStore`, `AnswerService`, the REST
 API, the MCP tools — only ever talks to the `IKnowledgeSource` interface
