@@ -1,0 +1,40 @@
+### Architecture Knowledge Agent — REST API requests
+### Works with the VS Code "REST Client" extension or the JetBrains HTTP Client.
+### Start the API first: dotnet run --project src/AkAgent.Api
+
+@baseUrl = http://localhost:5024
+
+### Ask a question (Q&A)
+POST {{baseUrl}}/ask
+Content-Type: application/json
+# X-Api-Key: your-api-key-here
+
+{
+  "question": "How do services communicate?"
+}
+
+### Validate a planned approach (guardrail)
+POST {{baseUrl}}/validate
+Content-Type: application/json
+# X-Api-Key: your-api-key-here
+
+{
+  "proposal": "add a new message queue"
+}
+
+### Trigger a manual sync
+POST {{baseUrl}}/sync
+# X-Api-Key: your-api-key-here
+
+### Readiness / per-source sync status
+GET {{baseUrl}}/status
+# X-Api-Key: your-api-key-here
+
+### List all indexed documents
+GET {{baseUrl}}/documents
+# X-Api-Key: your-api-key-here
+
+### Get a single document by id
+### Replace the id with one returned from the /documents request above.
+GET {{baseUrl}}/documents/FileDrop:adr-002.md
+# X-Api-Key: your-api-key-here

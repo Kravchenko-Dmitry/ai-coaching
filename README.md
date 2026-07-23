@@ -156,6 +156,15 @@ serving queries; `GET /status` reports readiness.
 
 Errors are returned as `application/problem+json` for all non-2xx responses.
 
+### Trying the API
+
+[`docs/api-requests.http`](docs/api-requests.http) has a ready-to-run request for every endpoint
+above. Open it with the VS Code [REST Client](https://marketplace.visualstudio.com/items?itemName=humao.rest-client)
+extension or a JetBrains IDE's built-in HTTP Client, make sure the API is running
+(`dotnet run --project src/AkAgent.Api`), and click "Send Request" above any block. It targets
+`http://localhost:5024` by default and includes a commented-out `X-Api-Key` header for when
+`Security:ApiKey` is configured.
+
 ## Using it from Claude Code (MCP)
 
 The `AkAgent.Mcp` project runs as a stdio MCP server and calls the REST API internally. Start it
