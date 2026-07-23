@@ -10,7 +10,7 @@ implementation approaches against your custom architecture documentation and gui
 The agent is an index, not a source of truth: documents remain owned by their external source
 systems, and the local store is disposable and rebuildable at any time via a full re-sync.
 
-See [`SPEC.md`](SPEC.md) for the full specification.
+See [`SPEC.md`](SPEC.MD) for the full specification.
 
 ## How it works
 
